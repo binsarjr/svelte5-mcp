@@ -181,12 +181,12 @@ echo '{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}' | npm start
 ## Contributing
 
 ### Adding Knowledge
-1. Add entries to `data/svelte_5_knowledge.jsonl`
+1. Add entries to `data/svelte_5_knowledge.json`
 2. Format: `{"question": "...", "answer": "..."}`
 3. Focus on Svelte 5 specific features and best practices
 
 ### Adding Examples  
-1. Add entries to `data/svelte_5_patterns.jsonl`
+1. Add entries to `data/svelte_5_patterns.json`
 2. Format: `{"instruction": "...", "input": "...", "output": "..."}`
 3. Include complete, working Svelte 5 code examples
 
