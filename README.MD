@@ -45,11 +45,11 @@ svelte5-mcp-server/
 ├── src/
 │   └── index.ts          # Main MCP server implementation
 ├── data/
-│   ├── svelte_5_knowledge.jsonl    # Curated Q&A knowledge base
-│   └── svelte_5_patterns.jsonl     # Code examples and patterns
+│   ├── svelte_5_knowledge.json    # Curated Q&A knowledge base
+│   └── svelte_5_patterns.json     # Code examples and patterns
 ├── package.json
 ├── tsconfig.json
-├── process-attached-data.js         # Data processing script
+├── example system prompt         # Svelte 5 specific system prompt (quite strict, adjust for your own preferences)
 └── README.md
 ```
 
