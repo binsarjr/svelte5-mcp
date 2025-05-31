@@ -239,17 +239,13 @@ Use prompts in sequence for complex workflows:
 - Review server logs for startup errors
 
 **"Invalid data format"**
-- Validate JSONL files have proper JSON on each line
+- Validate JSON files
 - Check for trailing commas or syntax errors
-- Re-run `process-attached-data.js` if needed
 
 ### Debugging
 ```bash
 # Enable debug logging
 DEBUG=* npm start
-
-# Validate data files
-node -e "console.log('Valid JSONL')" || echo "Invalid format"
 ```
 
 ## License
