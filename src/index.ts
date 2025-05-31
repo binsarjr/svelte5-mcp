@@ -9,11 +9,10 @@ import {
   GetPromptRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
-import Fuse, { FuseResultMatch } from "fuse.js";
 
 import knowledgeJson from "./data/svelte_5_knowledge.json" with { type: "json" }
 import examplesJson from "./data/svelte_5_patterns.json" with { type: "json" }
-import zodToJsonSchema from "zod-to-json-schema";
+import {Svelte5SearchDB} from "./Svelte5SearchDB.js";
 
 // Zod schemas for validation
 const SearchQuerySchema = z.object({
@@ -49,20 +48,12 @@ interface ExampleItem {
   output: string;
 }
 
-interface SearchResult<T> {
-  item: T;
-  score: number;
-  matches?: readonly FuseResultMatch[];
-}
-
 const knowledgeContent: KnowledgeItem[] = knowledgeJson
 const examplesContent: ExampleItem[] = examplesJson
+
 class Svelte5MCPServer {
   private server: Server;
-  private knowledgeData: KnowledgeItem[] = [];
-  private examplesData: ExampleItem[] = [];
-  private knowledgeFuse?: Fuse<KnowledgeItem>;
-  private examplesFuse?: Fuse<ExampleItem>;
+  private searchDB?: Svelte5SearchDB;
 
   constructor() {
     this.server = new Server(
@@ -79,58 +70,15 @@ class Svelte5MCPServer {
         },
       }
     );
-
-    this.loadData();
-    this.setupFuseInstances();
     this.setupHandlers();
+    this.searchDB = new Svelte5SearchDB('./svelte5-knowledge.db');
+    this.searchDB.populateData(knowledgeContent, examplesContent);
   }
 
-  private async loadData() {
-    try {
-      this.knowledgeData = knowledgeContent
-      this.examplesData = examplesContent
-    } catch (error) {
-      console.error(`Error loading data: ${error}`)
-      // Initialize with empty arrays if files not found
-      this.knowledgeData = [];
-      this.examplesData = [];
-    }
-  }
 
-  private setupFuseInstances() {
-    // Setup Fuse for knowledge search with improved configuration
-    this.knowledgeFuse = new Fuse(this.knowledgeData, {
-      keys: [
-        { name: "question", weight: 0.6 },
-        { name: "answer", weight: 0.4 }
-      ],
-      threshold: 0.6, // More lenient threshold for better fuzzy matching
-      includeScore: true,
-      includeMatches: true,
-      minMatchCharLength: 1, // Allow single character matches (important for $ symbols)
-      ignoreLocation: true, // Don't penalize matches based on location in text
-      findAllMatches: true, // Find all matches, not just the first one
-      useExtendedSearch: true, // Enable extended search syntax
-    });
-
-    // Setup Fuse for examples search with improved configuration
-    this.examplesFuse = new Fuse(this.examplesData, {
-      keys: [
-        { name: "instruction", weight: 0.4 },
-        { name: "input", weight: 0.3 },
-        { name: "output", weight: 0.3 }
-      ],
-      threshold: 0.6, // More lenient threshold
-      includeScore: true,
-      includeMatches: true,
-      minMatchCharLength: 1, // Allow single character matches
-      ignoreLocation: true, // Don't penalize matches based on location
-      findAllMatches: true, // Find all matches
-      useExtendedSearch: true, // Enable extended search syntax
-    });
-  }
 
   private setupHandlers() {
+
     this.server.setRequestHandler(ListResourcesRequestSchema, async () => ({
       resources: [
         {
@@ -158,7 +106,7 @@ class Svelte5MCPServer {
               {
                 uri,
                 mimeType: "application/json",
-                text: JSON.stringify(this.knowledgeData, null, 2),
+                text: JSON.stringify(knowledgeContent, null, 2),
               },
             ],
           };
@@ -169,7 +117,7 @@ class Svelte5MCPServer {
               {
                 uri,
                 mimeType: "application/json", 
-                text: JSON.stringify(this.examplesData, null, 2),
+                text: JSON.stringify(examplesContent, null, 2),
               },
             ],
           };
@@ -393,149 +341,36 @@ class Svelte5MCPServer {
     });
   }
 
-  private normalizeSearchQuery(query: string): string[] {
-    // Create multiple search variations to improve matching
-    const variations = [query.toLowerCase()];
-    
-    // Add variations for common Svelte 5 terms
-    const synonymMap: Record<string, string[]> = {
-      'effect': ['$effect', 'side effect', 'side-effect', 'effects'],
-      '$effect': ['effect', 'side effect', 'side-effect'],
-      'rune': ['runes', '$effect', '$state', '$derived'],
-      'runes': ['rune', '$effect', '$state', '$derived'],
-      'migrate': ['migration', 'convert', 'upgrade', 'transition'],
-      'legacy': ['old', 'svelte 4', 'deprecated', 'previous'],
-      'side effects': ['$effect', 'effect', 'side-effects'],
-      'run': ['execute', 'trigger', 'fire'],
-    };
-
-    // Add synonyms for each word in the query
-    const words = query.toLowerCase().split(/\s+/);
-    words.forEach(word => {
-      if (synonymMap[word]) {
-        variations.push(...synonymMap[word]);
-        // Also add combinations with the original query
-        synonymMap[word].forEach(synonym => {
-          variations.push(query.toLowerCase().replace(word, synonym));
-        });
-      }
-    });
-
-    // Add specific patterns for common queries
-    if (query.toLowerCase().includes('migrate') && query.toLowerCase().includes('effect')) {
-      variations.push('$effect rune', 'side effects svelte 5', 'effect migration');
-    }
-    
-    if (query.toLowerCase().includes('$effect') || query.toLowerCase().includes('effect')) {
-      variations.push('side effects', '$effect rune', 'effect teardown', 'effect cleanup');
-    }
-
-    return [...new Set(variations)]; // Remove duplicates
-  }
-
   private async searchKnowledge(args: any) {
     const { query, limit } = SearchQuerySchema.parse(args);
+    const results = this.searchDB?.searchKnowledge(query, limit);
     
-    // Get search variations
-    const searchVariations = this.normalizeSearchQuery(query);
-    
-    // Search with all variations and combine results
-    const allResults = new Map<string, any>();
-    
-    for (const searchTerm of searchVariations) {
-      const results = this.knowledgeFuse?.search(searchTerm, { limit: limit * 2 });
-      results?.forEach(result => {
-        const key = result.item.question + result.item.answer;
-        if (!allResults.has(key) || (allResults.get(key).score || 1) > (result.score || 0)) {
-          allResults.set(key, result);
-        }
-      });
-    }
-
-    // Convert back to array and sort by score
-    const finalResults = Array.from(allResults.values())
-      .sort((a, b) => (a.score || 0) - (b.score || 0))
-      .slice(0, limit);
-
     return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify({
-            query,
-            search_variations: searchVariations,
-            total_results: finalResults.length,
-            results: finalResults.map(result => ({
-              question: result.item.question,
-              answer: result.item.answer,
-              relevance_score: 1 - (result.score || 0),
-              matches: result.matches?.map((match: FuseResultMatch) => ({
-                key: match.key,
-                value: match.value,
-                indices: match.indices,
-              })),
-            })),
-          }, null, 2),
-        },
-      ],
+      content: [{
+        type: "text",
+        text: JSON.stringify(results, null, 2),
+      }],
     };
   }
 
   private async searchExamples(args: any) {
     const { query, limit } = SearchQuerySchema.parse(args);
+    const results = this.searchDB?.searchExamples(query, limit);
     
-    // Get search variations using the same normalization
-    const searchVariations = this.normalizeSearchQuery(query);
-    
-    // Search with all variations and combine results
-    const allResults = new Map<string, any>();
-    
-    for (const searchTerm of searchVariations) {
-      const results = this.examplesFuse?.search(searchTerm, { limit: limit * 2 });
-      results?.forEach(result => {
-        const key = result.item.instruction + result.item.input + result.item.output;
-        if (!allResults.has(key) || (allResults.get(key).score || 1) > (result.score || 0)) {
-          allResults.set(key, result);
-        }
-      });
-    }
-
-    // Convert back to array and sort by score
-    const finalResults = Array.from(allResults.values())
-      .sort((a, b) => (a.score || 0) - (b.score || 0))
-      .slice(0, limit);
-
     return {
-      content: [
-        {
-          type: "text",
-          text: JSON.stringify({
-            query,
-            search_variations: searchVariations,
-            total_results: finalResults.length,
-            results: finalResults.map(result => ({
-              instruction: result.item.instruction,
-              input: result.item.input,
-              output: result.item.output,
-              relevance_score: 1 - (result.score || 0),
-              matches: result.matches?.map((match: FuseResultMatch) => ({
-                key: match.key,
-                value: match.value,
-                indices: match.indices,
-              })),
-            })),
-          }, null, 2),
-        },
-      ],
+      content: [{
+        type: "text",
+        text: JSON.stringify(results, null, 2),
+      }],
     };
   }
 
-  private async generateWithContext(args: any) {
+    private async generateWithContext(args: any) {
     const { description, features, complexity } = GenerateComponentSchema.parse(args);
     
     // Search for relevant patterns
-    const patternResults = this.examplesFuse?.search(description, { limit: 3 });
-    const knowledgeResults = this.knowledgeFuse?.search(description, { limit: 2 });
+    const patternResults = this.searchDB?.searchExamples(description, 3);
+    const knowledgeResults = this.searchDB?.searchKnowledge(description, 2);
 
     return {
       content: [
@@ -543,15 +378,15 @@ class Svelte5MCPServer {
           type: "text",
           text: JSON.stringify({
             request: { description, features, complexity },
-            relevant_patterns: patternResults?.map(r => ({
-              instruction: r.item.instruction,
-              output: r.item.output,
-              relevance: 1 - (r.score || 0),
+            relevant_patterns: patternResults?.results?.map(r => ({
+              instruction: r.instruction,
+              output: r.output,
+              relevance: r.relevance_score,
             })),
-            relevant_knowledge: knowledgeResults?.map(r => ({
-              question: r.item.question,
-              answer: r.item.answer,
-              relevance: 1 - (r.score || 0),
+            relevant_knowledge: knowledgeResults?.results?.map(r => ({
+              question: r.question,
+              answer: r.answer,
+              relevance: r.relevance_score,
             })),
             generation_guidance: {
               use_runes: true,
@@ -577,7 +412,7 @@ class Svelte5MCPServer {
       all: "best practices performance accessibility patterns",
     };
 
-    const relevantKnowledge = this.knowledgeFuse?.search(focusQueries[focus], { limit: 5 });
+    const relevantKnowledge = this.searchDB?.searchKnowledge(focusQueries[focus], 4);;
 
     return {
       content: [
@@ -587,10 +422,10 @@ class Svelte5MCPServer {
             code_audit: {
               focus_area: focus,
               code_length: code.length,
-              relevant_guidelines: relevantKnowledge?.map(r => ({
-                guideline: r.item.question,
-                explanation: r.item.answer,
-                relevance: 1 - (r.score || 0),
+              relevant_guidelines: relevantKnowledge?.results.map(r => ({
+                guideline: r.question,
+                explanation: r.answer,
+                relevance: r.relevance_score,
               })),
               audit_checklist: {
                 uses_runes: code.includes("$state") || code.includes("$derived") || code.includes("$effect"),
@@ -609,8 +444,8 @@ class Svelte5MCPServer {
   private async explainConcept(args: any) {
     const { concept, detail_level } = ExplainConceptSchema.parse(args);
     
-    const conceptResults = this.knowledgeFuse?.search(concept, { limit: 3 });
-    const exampleResults = this.examplesFuse?.search(concept, { limit: 2 });
+    const conceptResults = this.searchDB?.searchKnowledge(concept, 3);
+    const exampleResults = this.searchDB?.searchExamples(concept, 2);
 
     return {
       content: [
@@ -620,15 +455,15 @@ class Svelte5MCPServer {
             concept_explanation: {
               concept,
               detail_level,
-              explanations: conceptResults?.map(r => ({
-                question: r.item.question,
-                answer: r.item.answer,
-                relevance: 1 - (r.score || 0),
+              explanations: conceptResults?.results?.map(item => ({
+                question: item.question,
+                answer: item.answer,
+                relevance: item.relevance_score,
               })),
-              code_examples: exampleResults?.map(r => ({
-                scenario: r.item.instruction,
-                implementation: r.item.output,
-                relevance: 1 - (r.score || 0),
+              code_examples: exampleResults?.results?.map(item => ({
+                scenario: item.input,
+                implementation: item.output,
+                relevance: item.relevance_score,
               })),
             },
           }, null, 2),
