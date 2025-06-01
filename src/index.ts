@@ -9,10 +9,16 @@ import {
   GetPromptRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import { fileURLToPath } from "url";
+import { dirname, join } from "path";
 
 import knowledgeJson from "./data/svelte_5_knowledge.json" with { type: "json" }
 import examplesJson from "./data/svelte_5_patterns.json" with { type: "json" }
 import {Svelte5SearchDB} from "./Svelte5SearchDB.js";
+
+// Get the directory of the current module
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 
 // Zod schemas for validation
 const SearchQuerySchema = z.object({
@@ -71,7 +77,9 @@ class Svelte5MCPServer {
       }
     );
     this.setupHandlers();
-    this.searchDB = new Svelte5SearchDB('./svelte5-knowledge.db');
+    // Create database in the MCP server's directory, not the current working directory
+    const dbPath = join(__dirname, '..', 'svelte5-knowledge.db');
+    this.searchDB = new Svelte5SearchDB(dbPath);
     this.searchDB.populateData(knowledgeContent, examplesContent);
   }
 
