@@ -130,7 +130,7 @@ Analyzes code and suggests Svelte 5 improvements (e.g., using `$state` and moder
 
 ## Data Format
 
-### Knowledge Base (`svelte_5_knowledge.jsonl`)
+### Knowledge Base (`svelte_5_knowledge.json`)
 ```json
 {
   "question": "How do you manage reactive state in Svelte 5?",
@@ -138,7 +138,7 @@ Analyzes code and suggests Svelte 5 improvements (e.g., using `$state` and moder
 }
 ```
 
-### Examples (`svelte_5_patterns.jsonl`)
+### Examples (`svelte_5_patterns.json`)
 ```json
 {
   "instruction": "Create a Svelte 5 component demonstrating $state",
@@ -231,7 +231,7 @@ Use prompts in sequence for complex workflows:
 **"No results found"**
 - Check search terms are relevant to Svelte 5
 - Try broader queries first, then narrow down
-- Ensure data files are properly formatted JSONL
+- Ensure data files are properly formatted json
 
 **"Tool not found"**
 - Verify server is built (`npm run build`)
