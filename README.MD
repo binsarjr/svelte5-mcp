@@ -149,12 +149,14 @@ Analyzes code and suggests Svelte 5 improvements (e.g., using `$state` and moder
 
 ## Configuration
 
-The server uses Fuse.js for intelligent search with the following configuration:
+The server uses a better-sqlite3 database and FTS5 queries for search
 
-- **Knowledge Search**: Weighted toward questions (0.7) and answers (0.3)
-- **Example Search**: Balanced across instruction, input, and output
-- **Fuzzy Matching**: 0.4 threshold for relevant but flexible results
-- **Score & Highlights**: Includes relevance scores and match highlighting
+- **Full-Text Search**: Utilizes SQLite's FTS5 extension for powerful and efficient searching across the knowledge base and code examples.
+- **Tokenization**: Employs the `unicode61` tokenizer with a comprehensive set of separators for robust indexing of terms.
+- **Synonym Expansion**: Enhances search recall by automatically expanding query terms with predefined Svelte 5-specific synonyms (e.g., '$state' also matches 'reactive state').
+- **Result Highlighting**: Search results include highlighted matches within relevant fields (e.g., question, answer, instruction) using FTS5's `highlight()` function.
+- **Relevance Ranking**: Results are ordered by relevance based on FTS5's internal ranking algorithm.
+- **Advanced Boosting**: Offers capabilities for custom scoring and boosting to fine-tune search results, such as prioritizing matches in question fields or code content.
 
 ## Development
 
@@ -255,6 +257,6 @@ MIT License - see LICENSE file for details.
 ## Acknowledgments
 
 - Built with [MCP TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk)
-- Search powered by [Fuse.js](https://fusejs.io/)
+- Search db by [better-sqlite3](https://github.com/WiseLibs/better-sqlite3)
 - Validation with [Zod](https://zod.dev/)
 - Curated Svelte 5 knowledge from official documentation and community best practices
