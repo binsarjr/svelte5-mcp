@@ -15,6 +15,7 @@ import { dirname, join } from "path";
 import knowledgeJson from "./data/svelte_5_knowledge.json" with { type: "json" }
 import examplesJson from "./data/svelte_5_patterns.json" with { type: "json" }
 import {Svelte5SearchDB} from "./Svelte5SearchDB.js";
+import { logConfigPaths } from "./utils/config.js";
 
 // Get the directory of the current module
 const __filename = fileURLToPath(import.meta.url);
@@ -77,9 +78,12 @@ class Svelte5MCPServer {
       }
     );
     this.setupHandlers();
-    // Create database in the MCP server's directory, not the current working directory
-    const dbPath = join(__dirname, '..', 'svelte5-knowledge.db');
-    this.searchDB = new Svelte5SearchDB(dbPath);
+
+    // Log configuration paths for debugging
+    logConfigPaths();
+
+    // Initialize database with config-based path
+    this.searchDB = new Svelte5SearchDB();
     this.searchDB.populateData(knowledgeContent, examplesContent);
   }
 

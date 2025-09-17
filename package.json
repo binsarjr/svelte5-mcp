@@ -1,9 +1,18 @@
 {
-  "name": "@context-binsarjr/svelte5-mcp-server",
+  "name": "@binsarjr/svelte5-mcp",
   "version": "1.0.0",
   "description": "MCP server for Svelte 5 frontend development with curated knowledge and examples",
   "type": "module",
   "main": "src/index.ts",
+  "bin": {
+    "svelte5-mcp": "src/index.ts"
+  },
+  "files": [
+    "src/**/*",
+    "README.md",
+    "package.json",
+    "tsconfig.json"
+  ],
   "scripts": {
     "dev": "bun --watch src/index.ts",
     "start": "bun src/index.ts",
@@ -25,7 +34,6 @@
   },
   "devDependencies": {
     "@types/bun": "^1.2.22",
-    "@types/node": "^22.18.5",
     "typescript": "^5.9.2"
   },
   "engines": {

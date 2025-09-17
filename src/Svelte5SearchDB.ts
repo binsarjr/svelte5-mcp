@@ -1,4 +1,5 @@
 import { Database } from 'bun:sqlite'
+import { getDatabasePath } from './utils/config.js'
 
 interface KnowledgeItem {
   id?: number;
@@ -51,9 +52,16 @@ interface CustomScoreRow {
 export class Svelte5SearchDB {
   private db: Database;
 
-  constructor(dbPath: string = ':memory:') {
-    this.db = new Database(dbPath);
+  constructor(dbPath?: string) {
+    // Use config-based path if no path provided, fallback to memory
+    const finalDbPath = dbPath || getDatabasePath();
+    this.db = new Database(finalDbPath);
     this.initializeDatabase();
+
+    // Log database location for debugging
+    if (finalDbPath !== ':memory:') {
+      console.log(`Svelte5 MCP: Database initialized at ${finalDbPath}`);
+    }
   }
 
   private initializeDatabase() {

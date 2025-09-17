@@ -25,6 +25,24 @@ A specialized Model Context Protocol (MCP) server for Svelte 5 frontend developm
 
 ## Installation
 
+### Option 1: Direct usage with bunx (Recommended)
+
+Simply add to your Claude Desktop configuration - no installation required:
+
+```json
+{
+  "mcpServers": {
+    "svelte5": {
+      "command": "bunx",
+      "args": ["@binsarjr/svelte5-mcp"],
+      "env": {}
+    }
+  }
+}
+```
+
+### Option 2: Manual installation
+
 ```bash
 # Clone and setup
 git clone https://github.com/binsarjr/svelte5-mcp
@@ -32,7 +50,6 @@ cd svelte5-mcp-bin
 
 # Install dependencies with Bun
 bun install
-
 
 # Start the server
 bun start
@@ -43,27 +60,41 @@ bun start
 ```
 svelte5-mcp-bin/
 ├── src/
-│   └── index.ts          # Main MCP server implementation
-├── data/
-│   ├── svelte_5_knowledge.json    # Curated Q&A knowledge base
-│   └── svelte_5_patterns.json     # Code examples and patterns
+│   ├── index.ts          # Main MCP server implementation
+│   ├── Svelte5SearchDB.ts # SQLite database with FTS5 search
+│   └── data/
+│       ├── svelte_5_knowledge.json    # Curated Q&A knowledge base
+│       └── svelte_5_patterns.json     # Code examples and patterns
 ├── package.json
 ├── bun.lockb            # Bun lock file
 ├── tsconfig.json
-├── example system prompt         # Svelte 5 specific system prompt (quite strict, adjust for your own preferences)
 └── README.md
 ```
 
 ## Usage with Claude Desktop
 
-Add to your Claude Desktop configuration:
+### Recommended: Using bunx (no installation required)
+
+```json
+{
+  "mcpServers": {
+    "svelte5": {
+      "command": "bunx",
+      "args": ["@binsarjr/svelte5-mcp"],
+      "env": {}
+    }
+  }
+}
+```
+
+### Alternative: Local installation
 
 ```json
 {
   "mcpServers": {
     "svelte5": {
       "command": "bun",
-      "args": ["/path/to/svelte5-mcp-bin/dist/index.js"],
+      "args": ["/path/to/svelte5-mcp-bin/src/index.ts"],
       "env": {}
     }
   }
@@ -150,7 +181,36 @@ Analyzes code and suggests Svelte 5 improvements (e.g., using `$state` and moder
 
 ## Configuration
 
-The server uses a better-sqlite3 database and FTS5 queries for search
+### Database Location
+
+The server stores its SQLite database following the XDG Base Directory specification:
+
+- **All platforms**: `~/.config/binsarjr/svelte5-mcp/database.db`
+
+This provides a consistent, organized location across all operating systems.
+
+### Environment Variables
+
+You can customize the database location using environment variables:
+
+```json
+{
+  "mcpServers": {
+    "svelte5": {
+      "command": "bunx",
+      "args": ["@binsarjr/svelte5-mcp"],
+      "env": {
+        "SVELTE5_MCP_CONFIG_DIR": "/custom/config/path",
+        "SVELTE5_MCP_DB_PATH": "/custom/database.db"
+      }
+    }
+  }
+}
+```
+
+### Search Features
+
+The server uses SQLite with FTS5 for advanced search capabilities:
 
 - **Full-Text Search**: Utilizes SQLite's FTS5 extension for powerful and efficient searching across the knowledge base and code examples.
 - **Tokenization**: Employs the `unicode61` tokenizer with a comprehensive set of separators for robust indexing of terms.
@@ -239,10 +299,22 @@ Use prompts in sequence for complex workflows:
 - Validate JSON files
 - Check for trailing commas or syntax errors
 
+**Database/Config Issues**
+- Check if config directory is writable
+- Verify database permissions in the config folder
+- Use `SVELTE5_MCP_DB_PATH` environment variable for custom locations
+- Check logs for database initialization messages
+
 ### Debugging
 ```bash
 # Enable debug logging
 DEBUG=* bun start
+
+# Test database location
+bunx @binsarjr/svelte5-mcp  # Watch for config path logs
+
+# Check config directory (all platforms)
+ls -la ~/.config/binsarjr/svelte5-mcp/
 ```
 
 ## License
