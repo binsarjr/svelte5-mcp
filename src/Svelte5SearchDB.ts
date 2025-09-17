@@ -1,5 +1,7 @@
 import { Database } from 'bun:sqlite'
 import { getDatabasePath } from './utils/config.js'
+import { createHash } from 'crypto'
+import packageJson from '../package.json' with { type: 'json' }
 
 interface KnowledgeItem {
   id?: number;
@@ -69,17 +71,29 @@ export class Svelte5SearchDB {
     this.db.run(`
       CREATE TABLE IF NOT EXISTS knowledge (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        question TEXT NOT NULL,
+        question TEXT NOT NULL UNIQUE,
         answer TEXT NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        content_hash TEXT,
+        version INTEGER DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
 
       CREATE TABLE IF NOT EXISTS examples (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        instruction TEXT NOT NULL,
+        instruction TEXT NOT NULL UNIQUE,
         input TEXT NOT NULL,
         output TEXT NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        content_hash TEXT,
+        version INTEGER DEFAULT 1,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS metadata (
+        key TEXT PRIMARY KEY,
+        value TEXT,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
       );
 
       -- FTS5 virtual tables for full-text search
@@ -165,22 +179,147 @@ export class Svelte5SearchDB {
     }
   }
 
+  private generateContentHash(content: string): string {
+    return createHash('md5').update(content).digest('hex');
+  }
+
+  private isDatabaseInitialized(): boolean {
+    try {
+      const result = this.db.query(`
+        SELECT COUNT(*) as count
+        FROM sqlite_master
+        WHERE type='table' AND name IN ('knowledge', 'examples', 'metadata')
+      `).get() as { count: number };
+
+      // Check if all required tables exist
+      return result.count >= 3;
+    } catch {
+      return false;
+    }
+  }
+
+  private setMetadata(key: string, value: string) {
+    const query = this.db.query(`
+      INSERT INTO metadata (key, value, updated_at)
+      VALUES (?, ?, CURRENT_TIMESTAMP)
+      ON CONFLICT(key) DO UPDATE SET
+        value = excluded.value,
+        updated_at = CURRENT_TIMESTAMP
+    `);
+    query.run(key, value);
+  }
+
+  private getMetadata(key: string): string | null {
+    try {
+      const result = this.db.query(`
+        SELECT value FROM metadata WHERE key = ?
+      `).get(key) as { value: string } | null;
+      return result?.value || null;
+    } catch {
+      return null;
+    }
+  }
+
   populateData(knowledge: KnowledgeItem[], examples: ExampleItem[]) {
-    const insertKnowledge = this.db.query(`
-      INSERT INTO knowledge (question, answer) VALUES (?, ?)
+    // Check if this is first initialization or update
+    const isFirstRun = !this.isDatabaseInitialized() ||
+                       (this.db.query("SELECT COUNT(*) as count FROM knowledge").get() as { count: number }).count === 0;
+
+    if (isFirstRun) {
+      console.log('Svelte5 MCP: First run - initializing database with knowledge base');
+    } else {
+      // Check version
+      const currentDbVersion = this.getMetadata('db_version');
+      console.log(`Svelte5 MCP: Database exists (v${currentDbVersion}) - checking for updates to v${packageJson.version}`);
+
+      if (currentDbVersion === packageJson.version) {
+        console.log('Svelte5 MCP: Database is up to date, skipping population');
+        return; // Skip if same version
+      }
+    }
+
+    // Prepare UPSERT queries
+    const upsertKnowledge = this.db.query(`
+      INSERT INTO knowledge (question, answer, content_hash, version)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(question) DO UPDATE SET
+        answer = excluded.answer,
+        content_hash = excluded.content_hash,
+        version = excluded.version,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE content_hash != excluded.content_hash OR content_hash IS NULL
     `);
 
-    const insertExample = this.db.query(`
-      INSERT INTO examples (instruction, input, output) VALUES (?, ?, ?)
+    const upsertExample = this.db.query(`
+      INSERT INTO examples (instruction, input, output, content_hash, version)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(instruction) DO UPDATE SET
+        input = excluded.input,
+        output = excluded.output,
+        content_hash = excluded.content_hash,
+        version = excluded.version,
+        updated_at = CURRENT_TIMESTAMP
+      WHERE content_hash != excluded.content_hash OR content_hash IS NULL
     `);
 
     // Use transaction for better performance
     this.db.transaction(() => {
+      let knowledgeUpdated = 0;
+      let knowledgeInserted = 0;
+
       for (const item of knowledge) {
-        insertKnowledge.run(item.question, item.answer);
+        const contentHash = this.generateContentHash(item.question + item.answer);
+        const changes = upsertKnowledge.run(
+          item.question,
+          item.answer,
+          contentHash,
+          1  // version
+        );
+
+        // Check if it was an update or insert
+        if (changes.changes > 0) {
+          if (changes.lastInsertRowid) {
+            knowledgeInserted++;
+          } else {
+            knowledgeUpdated++;
+          }
+        }
       }
+
+      let examplesUpdated = 0;
+      let examplesInserted = 0;
+
       for (const item of examples) {
-        insertExample.run(item.instruction, item.input, item.output);
+        const contentHash = this.generateContentHash(item.instruction + item.input + item.output);
+        const changes = upsertExample.run(
+          item.instruction,
+          item.input,
+          item.output,
+          contentHash,
+          1  // version
+        );
+
+        if (changes.changes > 0) {
+          if (changes.lastInsertRowid) {
+            examplesInserted++;
+          } else {
+            examplesUpdated++;
+          }
+        }
+      }
+
+      // Update metadata
+      this.setMetadata('last_sync', new Date().toISOString());
+      this.setMetadata('db_version', packageJson.version);
+      this.setMetadata('package_name', packageJson.name);
+      this.setMetadata('knowledge_count', knowledge.length.toString());
+      this.setMetadata('examples_count', examples.length.toString());
+
+      if (knowledgeInserted > 0 || examplesInserted > 0) {
+        console.log(`Svelte5 MCP: Added ${knowledgeInserted} knowledge items, ${examplesInserted} examples`);
+      }
+      if (knowledgeUpdated > 0 || examplesUpdated > 0) {
+        console.log(`Svelte5 MCP: Updated ${knowledgeUpdated} knowledge items, ${examplesUpdated} examples`);
       }
     })();
   }

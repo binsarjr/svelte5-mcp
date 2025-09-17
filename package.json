@@ -1,21 +1,21 @@
 {
   "name": "@binsarjr/svelte5-mcp",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "description": "MCP server for Svelte 5 frontend development with curated knowledge and examples",
   "type": "module",
-  "main": "src/index.ts",
-  "bin": {
-    "svelte5-mcp": "src/index.ts"
-  },
+  "main": "dist/index.js",
+  "bin": "dist/index.js",
   "files": [
-    "src/**/*",
+    "dist/**/*",
+    "src/data/**/*",
     "README.md",
-    "package.json",
-    "tsconfig.json"
+    "package.json"
   ],
   "scripts": {
     "dev": "bun --watch src/index.ts",
+    "build": "tsc && cp -r src/data dist/ && chmod +x dist/index.js",
     "start": "bun src/index.ts",
+    "prepublishOnly": "npm run build",
     "inspect": "bunx @modelcontextprotocol/inspector bun src/index.ts"
   },
   "keywords": [
@@ -37,7 +37,6 @@
     "typescript": "^5.9.2"
   },
   "engines": {
-    "bun": ">=1.0.0",
-    "node": ">=18"
+    "bun": ">=1.0.0"
   }
 }
