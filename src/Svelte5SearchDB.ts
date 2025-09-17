@@ -2,6 +2,9 @@ import { Database } from 'bun:sqlite'
 import { getDatabasePath } from './utils/config.js'
 import { createHash } from 'crypto'
 import packageJson from '../package.json' with { type: 'json' }
+import { readJSONL, loadJsonlFromDirectory } from './utils/jsonl.js'
+import { join, dirname } from 'path'
+import { fileURLToPath } from 'url'
 
 interface KnowledgeItem {
   id?: number;
@@ -324,6 +327,100 @@ export class Svelte5SearchDB {
     })();
   }
 
+  /**
+   * Load data from JSONL folders (new modular approach)
+   */
+  populateFromFolders(dataDir: string, forceResync: boolean = false) {
+    try {
+      // Check if we need to resync or if database is empty
+      const knowledgeCount = this.db.query('SELECT COUNT(*) as count FROM knowledge').get() as { count: number };
+      const examplesCount = this.db.query('SELECT COUNT(*) as count FROM examples').get() as { count: number };
+
+      if (!forceResync && knowledgeCount.count > 0 && examplesCount.count > 0) {
+        console.log(`📚 Database already populated (${knowledgeCount.count} knowledge, ${examplesCount.count} examples). Use --force to resync.`);
+        return;
+      }
+
+      if (forceResync) {
+        console.log('🔄 Force resync: Clearing existing data...');
+        this.db.query('DELETE FROM knowledge').run();
+        this.db.query('DELETE FROM examples').run();
+        this.db.query('DELETE FROM synonyms').run();
+        console.log('✅ Existing data cleared');
+      }
+
+      // Load knowledge data from knowledge/ folder
+      const knowledgeDir = join(dataDir, 'knowledge');
+      const knowledge = loadJsonlFromDirectory<KnowledgeItem>(knowledgeDir);
+      console.log(`📖 Total knowledge loaded: ${knowledge.length} items`);
+
+      // Load examples data from patterns/ folder
+      const patternsDir = join(dataDir, 'patterns');
+      const examples = loadJsonlFromDirectory<ExampleItem>(patternsDir);
+      console.log(`💻 Total patterns loaded: ${examples.length} items`);
+
+      // Populate database
+      this.populateData(knowledge, examples);
+      console.log('✅ Database populated successfully from folders');
+    } catch (error) {
+      console.error('❌ Error loading data from folders:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Load data from JSONL files (legacy method for backward compatibility)
+   */
+  populateFromJSONL(knowledgePath: string, examplesPath: string, forceResync: boolean = false) {
+    try {
+      // Check if we need to resync or if database is empty
+      const knowledgeCount = this.db.query('SELECT COUNT(*) as count FROM knowledge').get() as { count: number };
+      const examplesCount = this.db.query('SELECT COUNT(*) as count FROM examples').get() as { count: number };
+
+      if (!forceResync && knowledgeCount.count > 0 && examplesCount.count > 0) {
+        console.log(`📚 Database already populated (${knowledgeCount.count} knowledge, ${examplesCount.count} examples). Use --force to resync.`);
+        return;
+      }
+
+      if (forceResync) {
+        console.log('🔄 Force resync: Clearing existing data...');
+        this.db.query('DELETE FROM knowledge').run();
+        this.db.query('DELETE FROM examples').run();
+        this.db.query('DELETE FROM synonyms').run();
+        console.log('✅ Existing data cleared');
+      }
+
+      // Load knowledge data
+      const knowledge = readJSONL<KnowledgeItem>(knowledgePath);
+      console.log(`📖 Loaded ${knowledge.length} knowledge items from JSONL`);
+
+      // Load examples data
+      const examples = readJSONL<ExampleItem>(examplesPath);
+      console.log(`💻 Loaded ${examples.length} examples from JSONL`);
+
+      // Populate database
+      this.populateData(knowledge, examples);
+      console.log('✅ Database populated successfully');
+    } catch (error) {
+      console.error('❌ Error loading JSONL data:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Truncate text to specified length with ellipsis
+   */
+  private truncateText(text: string, maxLength: number = 500): string {
+    if (text.length <= maxLength) return text;
+
+    // Try to cut at a word boundary
+    const truncated = text.substring(0, maxLength);
+    const lastSpace = truncated.lastIndexOf(' ');
+    const cutPoint = lastSpace > maxLength * 0.8 ? lastSpace : maxLength;
+
+    return text.substring(0, cutPoint) + '...';
+  }
+
   private expandQuery(query: string): string {
     // Get synonyms for terms in the query
     const synonymsQuery = this.db.query(`
@@ -353,7 +450,7 @@ export class Svelte5SearchDB {
       .join(' OR ');
   }
 
-  searchKnowledge(query: string, limit: number = 5) {
+  searchKnowledge(query: string, limit: number = 3, maxAnswerLength: number = 800) {
     const expandedQuery = this.expandQuery(query);
 
     const searchQuery = this.db.query(`
@@ -377,15 +474,15 @@ export class Svelte5SearchDB {
       results: results.map(row => ({
         id: row.id,
         question: row.question,
-        answer: row.answer,
+        answer: this.truncateText(row.answer, maxAnswerLength),
         highlighted_question: row.highlighted_question,
-        highlighted_answer: row.highlighted_answer,
+        highlighted_answer: this.truncateText(row.highlighted_answer, maxAnswerLength),
         relevance_score: -row.rank, // FTS5 rank is negative, convert to positive
       }))
     };
   }
 
-  searchExamples(query: string, limit: number = 5) {
+  searchExamples(query: string, limit: number = 3, maxContentLength: number = 400) {
     const expandedQuery = this.expandQuery(query);
 
     const searchQuery = this.db.query(`
@@ -409,12 +506,12 @@ export class Svelte5SearchDB {
       total_results: results.length,
       results: results.map(row => ({
         id: row.id,
-        instruction: row.instruction,
-        input: row.input,
-        output: row.output,
-        highlighted_instruction: row.highlighted_instruction,
-        highlighted_input: row.highlighted_input,
-        highlighted_output: row.highlighted_output,
+        instruction: this.truncateText(row.instruction, maxContentLength),
+        input: this.truncateText(row.input, maxContentLength),
+        output: this.truncateText(row.output, maxContentLength),
+        highlighted_instruction: this.truncateText(row.highlighted_instruction, maxContentLength),
+        highlighted_input: this.truncateText(row.highlighted_input, maxContentLength),
+        highlighted_output: this.truncateText(row.highlighted_output, maxContentLength),
         relevance_score: -row.rank,
       }))
     };
