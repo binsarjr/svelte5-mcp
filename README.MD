@@ -1,6 +1,8 @@
-# Svelte 5 MCP Server
+# Svelte 5 MCP Server (Bun Version)
 
 A specialized Model Context Protocol (MCP) server for Svelte 5 frontend development, providing curated knowledge, code examples, and intelligent assistance for modern Svelte development with runes, snippets, and enhanced reactivity.
+
+> **Note**: This is a fork of [svelte5-mcp](https://github.com/StudentOfJS/svelte5-mcp) that has been adapted to use Bun instead of Node.js. This version is specifically optimized for Svelte 5 development with Bun as the runtime.
 
 ## Features
 
@@ -25,29 +27,28 @@ A specialized Model Context Protocol (MCP) server for Svelte 5 frontend developm
 
 ```bash
 # Clone and setup
-git clone <repository-url>
-cd svelte5-mcp-server
+git clone https://github.com/binsarjr/svelte5-mcp
+cd svelte5-mcp-bin
 
-# Install dependencies
-npm install
+# Install dependencies with Bun
+bun install
 
-# Build the server
-npm run build
 
 # Start the server
-npm start
+bun start
 ```
 
 ## Project Structure
 
 ```
-svelte5-mcp-server/
+svelte5-mcp-bin/
 ├── src/
 │   └── index.ts          # Main MCP server implementation
 ├── data/
 │   ├── svelte_5_knowledge.json    # Curated Q&A knowledge base
 │   └── svelte_5_patterns.json     # Code examples and patterns
 ├── package.json
+├── bun.lockb            # Bun lock file
 ├── tsconfig.json
 ├── example system prompt         # Svelte 5 specific system prompt (quite strict, adjust for your own preferences)
 └── README.md
@@ -61,8 +62,8 @@ Add to your Claude Desktop configuration:
 {
   "mcpServers": {
     "svelte5": {
-      "command": "node",
-      "args": ["/path/to/svelte5-mcp-server/dist/index.js"],
+      "command": "bun",
+      "args": ["/path/to/svelte5-mcp-bin/dist/index.js"],
       "env": {}
     }
   }
@@ -159,17 +160,12 @@ The server uses a better-sqlite3 database and FTS5 queries for search
 - **Advanced Boosting**: Offers capabilities for custom scoring and boosting to fine-tune search results, such as prioritizing matches in question fields or code content.
 
 ## Development
-
-### Building
-```bash
-npm run build     # Compile TypeScript
-npm run dev       # Watch mode for development
-```
+=
 
 ### Data Processing
 ```bash
-node process-attached-data.js    # Process curated knowledge
-node setup-data.js              # Create sample data
+bun process-attached-data.js    # Process curated knowledge
+bun setup-data.js              # Create sample data
 ```
 
 ### Testing
@@ -177,7 +173,7 @@ The server provides comprehensive logging and error handling:
 
 ```bash
 # Test the server
-echo '{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}' | npm start
+echo '{"jsonrpc": "2.0", "id": 1, "method": "tools/list"}' | bun start
 ```
 
 ## Contributing
@@ -236,7 +232,6 @@ Use prompts in sequence for complex workflows:
 - Ensure data files are properly formatted json
 
 **"Tool not found"**
-- Verify server is built (`npm run build`)
 - Check MCP client configuration
 - Review server logs for startup errors
 
@@ -247,7 +242,7 @@ Use prompts in sequence for complex workflows:
 ### Debugging
 ```bash
 # Enable debug logging
-DEBUG=* npm start
+DEBUG=* bun start
 ```
 
 ## License
@@ -257,6 +252,5 @@ MIT License - see LICENSE file for details.
 ## Acknowledgments
 
 - Built with [MCP TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk)
-- Search db by [better-sqlite3](https://github.com/WiseLibs/better-sqlite3)
 - Validation with [Zod](https://zod.dev/)
 - Curated Svelte 5 knowledge from official documentation and community best practices
