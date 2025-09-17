@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import { Database } from 'bun:sqlite'
 
 interface KnowledgeItem {
   id?: number;
@@ -49,7 +49,7 @@ interface CustomScoreRow {
 }
 
 export class Svelte5SearchDB {
-  private db: Database.Database;
+  private db: Database;
 
   constructor(dbPath: string = ':memory:') {
     this.db = new Database(dbPath);
@@ -58,7 +58,7 @@ export class Svelte5SearchDB {
 
   private initializeDatabase() {
     // Create tables with FTS5 for advanced text search
-    this.db.exec(`
+    this.db.run(`
       CREATE TABLE IF NOT EXISTS knowledge (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         question TEXT NOT NULL,
@@ -76,7 +76,7 @@ export class Svelte5SearchDB {
 
       -- FTS5 virtual tables for full-text search
       CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(
-        question, answer, 
+        question, answer,
         content='knowledge',
         content_rowid='id',
         tokenize="unicode61 separators ' !""#$%&''()*+,-./:;<=>?@[\]^_\`{|}~'"
@@ -84,7 +84,7 @@ export class Svelte5SearchDB {
 
       CREATE VIRTUAL TABLE IF NOT EXISTS examples_fts USING fts5(
         instruction, input, output,
-        content='examples', 
+        content='examples',
         content_rowid='id',
         tokenize="unicode61 separators ' !""#$%&''()*+,-./:;<=>?@[\]^_\`{|}~'"
       );
@@ -97,36 +97,36 @@ export class Svelte5SearchDB {
 
       -- Triggers to keep FTS in sync
       CREATE TRIGGER IF NOT EXISTS knowledge_ai AFTER INSERT ON knowledge BEGIN
-        INSERT INTO knowledge_fts(rowid, question, answer) 
+        INSERT INTO knowledge_fts(rowid, question, answer)
         VALUES (new.id, new.question, new.answer);
       END;
 
       CREATE TRIGGER IF NOT EXISTS knowledge_ad AFTER DELETE ON knowledge BEGIN
-        INSERT INTO knowledge_fts(knowledge_fts, rowid, question, answer) 
+        INSERT INTO knowledge_fts(knowledge_fts, rowid, question, answer)
         VALUES('delete', old.id, old.question, old.answer);
       END;
 
       CREATE TRIGGER IF NOT EXISTS knowledge_au AFTER UPDATE ON knowledge BEGIN
-        INSERT INTO knowledge_fts(knowledge_fts, rowid, question, answer) 
+        INSERT INTO knowledge_fts(knowledge_fts, rowid, question, answer)
         VALUES('delete', old.id, old.question, old.answer);
-        INSERT INTO knowledge_fts(rowid, question, answer) 
+        INSERT INTO knowledge_fts(rowid, question, answer)
         VALUES (new.id, new.question, new.answer);
       END;
 
       CREATE TRIGGER IF NOT EXISTS examples_ai AFTER INSERT ON examples BEGIN
-        INSERT INTO examples_fts(rowid, instruction, input, output) 
+        INSERT INTO examples_fts(rowid, instruction, input, output)
         VALUES (new.id, new.instruction, new.input, new.output);
       END;
 
       CREATE TRIGGER IF NOT EXISTS examples_ad AFTER DELETE ON examples BEGIN
-        INSERT INTO examples_fts(examples_fts, rowid, instruction, input, output) 
+        INSERT INTO examples_fts(examples_fts, rowid, instruction, input, output)
         VALUES('delete', old.id, old.instruction, old.input, old.output);
       END;
 
       CREATE TRIGGER IF NOT EXISTS examples_au AFTER UPDATE ON examples BEGIN
-        INSERT INTO examples_fts(examples_fts, rowid, instruction, input, output) 
+        INSERT INTO examples_fts(examples_fts, rowid, instruction, input, output)
         VALUES('delete', old.id, old.instruction, old.input, old.output);
-        INSERT INTO examples_fts(rowid, instruction, input, output) 
+        INSERT INTO examples_fts(rowid, instruction, input, output)
         VALUES (new.id, new.instruction, new.input, new.output);
       END;
     `);
@@ -148,7 +148,7 @@ export class Svelte5SearchDB {
       { term: 'use:', synonyms: ['action', 'use directive', 'action function'] }
     ];
 
-    const insertSynonym = this.db.prepare(`
+    const insertSynonym = this.db.query(`
       INSERT OR REPLACE INTO synonyms (term, synonyms) VALUES (?, ?)
     `);
 
@@ -158,30 +158,29 @@ export class Svelte5SearchDB {
   }
 
   populateData(knowledge: KnowledgeItem[], examples: ExampleItem[]) {
-    const insertKnowledge = this.db.prepare(`
+    const insertKnowledge = this.db.query(`
       INSERT INTO knowledge (question, answer) VALUES (?, ?)
     `);
 
-    const insertExample = this.db.prepare(`
+    const insertExample = this.db.query(`
       INSERT INTO examples (instruction, input, output) VALUES (?, ?, ?)
     `);
 
-    const insertMany = this.db.transaction((knowledgeItems: KnowledgeItem[], exampleItems: ExampleItem[]) => {
-      for (const item of knowledgeItems) {
+    // Use transaction for better performance
+    this.db.transaction(() => {
+      for (const item of knowledge) {
         insertKnowledge.run(item.question, item.answer);
       }
-      for (const item of exampleItems) {
+      for (const item of examples) {
         insertExample.run(item.instruction, item.input, item.output);
       }
-    });
-
-    insertMany(knowledge, examples);
+    })();
   }
 
   private expandQuery(query: string): string {
     // Get synonyms for terms in the query
-    const synonymsQuery = this.db.prepare(`
-      SELECT term, synonyms FROM synonyms 
+    const synonymsQuery = this.db.query(`
+      SELECT term, synonyms FROM synonyms
       WHERE term LIKE '%' || ? || '%' OR ? LIKE '%' || term || '%'
     `);
 
@@ -193,7 +192,7 @@ export class Svelte5SearchDB {
       for (const row of synonymRows) {
         const synonyms = JSON.parse(row.synonyms);
         synonyms.forEach((synonym: string) => expandedTerms.add(synonym));
-        
+
         // Add variations of the original query with synonyms
         synonyms.forEach((synonym: string) => {
           expandedTerms.add(query.replace(new RegExp(word, 'gi'), synonym));
@@ -209,13 +208,13 @@ export class Svelte5SearchDB {
 
   searchKnowledge(query: string, limit: number = 5) {
     const expandedQuery = this.expandQuery(query);
-    
-    const searchQuery = this.db.prepare(`
-      SELECT k.*, 
+
+    const searchQuery = this.db.query(`
+      SELECT k.*,
              knowledge_fts.rank,
              highlight(knowledge_fts, 0, '<mark>', '</mark>') as highlighted_question,
              highlight(knowledge_fts, 1, '<mark>', '</mark>') as highlighted_answer
-      FROM knowledge_fts 
+      FROM knowledge_fts
       JOIN knowledge k ON k.id = knowledge_fts.rowid
       WHERE knowledge_fts MATCH ?
       ORDER BY knowledge_fts.rank
@@ -223,7 +222,7 @@ export class Svelte5SearchDB {
     `);
 
     const results = searchQuery.all(expandedQuery, limit) as KnowledgeSearchRow[];
-    
+
     return {
       query,
       expanded_query: expandedQuery,
@@ -241,14 +240,14 @@ export class Svelte5SearchDB {
 
   searchExamples(query: string, limit: number = 5) {
     const expandedQuery = this.expandQuery(query);
-    
-    const searchQuery = this.db.prepare(`
-      SELECT e.*, 
+
+    const searchQuery = this.db.query(`
+      SELECT e.*,
              examples_fts.rank,
              highlight(examples_fts, 0, '<mark>', '</mark>') as highlighted_instruction,
              highlight(examples_fts, 1, '<mark>', '</mark>') as highlighted_input,
              highlight(examples_fts, 2, '<mark>', '</mark>') as highlighted_output
-      FROM examples_fts 
+      FROM examples_fts
       JOIN examples e ON e.id = examples_fts.rowid
       WHERE examples_fts MATCH ?
       ORDER BY examples_fts.rank
@@ -256,7 +255,7 @@ export class Svelte5SearchDB {
     `);
 
     const results = searchQuery.all(expandedQuery, limit) as ExampleSearchRow[];
-    
+
     return {
       query,
       expanded_query: expandedQuery,
@@ -283,16 +282,16 @@ export class Svelte5SearchDB {
   } = {}) {
     const { limit = 5, questionBoost = 2.0, instructionBoost = 1.5, codeBoost = 1.5 } = options;
     const expandedQuery = this.expandQuery(query);
-    
+
     if (type === 'knowledge') {
       // Custom scoring for knowledge with question boost
-      const searchQuery = this.db.prepare(`
-        SELECT k.*, 
-               (knowledge_fts.rank * 
+      const searchQuery = this.db.query(`
+        SELECT k.*,
+               (knowledge_fts.rank *
                 CASE WHEN knowledge_fts.rank < -10 THEN ? ELSE 1.0 END +
                 CASE WHEN k.question LIKE '%$%' OR k.answer LIKE '%$%' THEN ? ELSE 1.0 END
                ) as custom_score
-        FROM knowledge_fts 
+        FROM knowledge_fts
         JOIN knowledge k ON k.id = knowledge_fts.rowid
         WHERE knowledge_fts MATCH ?
         ORDER BY custom_score
@@ -302,7 +301,7 @@ export class Svelte5SearchDB {
       return searchQuery.all(questionBoost, codeBoost, expandedQuery, limit) as CustomScoreRow[];
     } else {
       // Custom scoring for examples with instruction boost and code detection
-      const searchQuery = this.db.prepare(`
+      const searchQuery = this.db.query(`
         SELECT e.*,
                (examples_fts.rank *
                 CASE WHEN examples_fts.rank < -10 THEN ? ELSE 1.0 END +
